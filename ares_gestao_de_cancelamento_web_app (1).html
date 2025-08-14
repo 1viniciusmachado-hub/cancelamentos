@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestão de Cancelamento de Contratos — Ares Fit</title>
+  <style>
+    body { font-family: sans-serif; background: #0b0f12; color: #e2e8f0; margin: 0; padding: 20px; }
+    .panel { background: #12181d; padding: 16px; border-radius: 14px; max-width: 1000px; margin: auto; }
+    .form-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+    label { color: #94a3b8; font-size: 14px; display: flex; flex-direction: column; }
+    input { padding: 8px; border-radius: 6px; border: 1px solid #1f2937; background: #0b1218; color: #e2e8f0; min-width: 150px; }
+    button { padding: 8px 14px; border-radius: 6px; border: none; background: #38bdf8; color: #000; font-weight: bold; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { padding: 8px; border-bottom: 1px solid #1f2937; }
+    th { color: #94a3b8; text-align: left; }
+    .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: bold; }
+    .green { background: rgba(22,163,74,.18); color: #c6f6d5; }
+    .yellow { background: rgba(245,158,11,.18); color: #fde68a; }
+    .red { background: rgba(220,38,38,.16); color: #fecaca; }
+    .cards { margin-top: 20px; }
+    .card { background: #0c1319; padding: 14px; border-radius: 12px; display: inline-block; }
+    .card .label { color: #94a3b8; font-size: 12px; }
+    .card .value { font-size: 22px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Gestão de Cancelamento de Contratos — Ares Fit</h1>
+    <div class="form-row">
+      <label>Valor total (R$)
+        <input id="valorTotal" type="text" placeholder="Ex.: 3.000,00">
+      </label>
+      <label>Data de início
+        <input id="dataInicio" type="date">
+      </label>
+      <label>Data de cancelamento
+        <input id="dataCancel" type="date">
+      </label>
+      <button id="gerar">Gerar parcelas</button>
+    </div>
+    <div class="cards" id="cards" hidden>
+      <div class="card"><div class="label">Total Estornado</div><div class="value" id="totalEstornado">R$ 0,00</div></div>
+    </div>
+    <table id="tabela" hidden>
+      <thead>
+        <tr><th>Parcela</th><th>Data de cobrança</th><th>Valor</th><th>Status</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <script>
+    const toBRL = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v);
+    const fmtDate = d => d.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
+    function parseBRL(input){if(!input)return NaN;const s=String(input).replace(/\s+/g,'').replace(/\./g,'').replace(/,/g,'.');const n=Number(s);return isFinite(n)?n:NaN;}
+    function addMonthsPreserveDay(date,months){const d=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()));const day=d.getUTCDate();const target=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+months,1));const lastDay=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth()+1,0)).getUTCDate();target.setUTCDate(Math.min(day,lastDay));return new Date(target);}
+    function startOfDayLocal(date){const d=new Date(date);d.setHours(0,0,0,0);return d;}
+    function gerarParcelas({total,inicio,cancelamento}){
+      const totalCents=Math.round(total*100);
+      const baseParcela=Math.floor(totalCents/12);
+      const resto=totalCents-baseParcela*11;
+      const parcelas=[];
+      for(let i=0;i<12;i++){
+        const due=addMonthsPreserveDay(inicio,i);
+        const cents=(i<11)?baseParcela:resto;
+        parcelas.push({numero:i+1,data:due,valor:cents/100,status:'Cobrada'});
+      }
+      const cancel=startOfDayLocal(cancelamento);
+      let avisoIndex=parcelas.findIndex(p=>startOfDayLocal(p.data)>=cancel);
+      if(avisoIndex===-1) avisoIndex=parcelas.length-1;
+      parcelas.forEach((p,idx)=>{if(idx<avisoIndex)p.status='Cobrada';else if(idx===avisoIndex)p.status='Aviso Prévio';else p.status='Estornada';});
+      return parcelas;
+    }
+    function preencherTabela(parcelas){
+      const tbody=document.querySelector('#tabela tbody');
+      tbody.innerHTML='';
+      parcelas.forEach(p=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>#${p.numero}</td><td>${fmtDate(p.data)}</td><td>${toBRL(p.valor)}</td><td><span class="badge ${p.status==='Cobrada'?'green':p.status==='Aviso Prévio'?'yellow':'red'}">${p.status}</span></td>`;
+        tbody.appendChild(tr);
+      });
+      document.getElementById('tabela').hidden=false;
+    }
+    function atualizarTotalEstornado(parcelas){
+      const totalEstornado=parcelas.filter(p=>p.status==='Estornada').reduce((s,p)=>s+p.valor,0);
+      document.getElementById('totalEstornado').textContent=toBRL(totalEstornado);
+      document.getElementById('cards').hidden=false;
+    }
+    document.getElementById('gerar').addEventListener('click',()=>{
+      const valor=parseBRL(document.getElementById('valorTotal').value);
+      const inicio=document.getElementById('dataInicio').valueAsDate;
+      const cancel=document.getElementById('dataCancel').valueAsDate;
+      if(!isFinite(valor)||valor<=0)return alert('Informe um valor total válido.');
+      if(!inicio)return alert('Informe a data de início.');
+      if(!cancel)return alert('Informe a data de cancelamento.');
+      const inicioUTC=new Date(Date.UTC(inicio.getFullYear(),inicio.getMonth(),inicio.getDate()));
+      const cancelUTC=new Date(Date.UTC(cancel.getFullYear(),cancel.getMonth(),cancel.getDate()));
+      const parcelas=gerarParcelas({total:valor,inicio:inicioUTC,cancelamento:cancelUTC});
+      preencherTabela(parcelas);
+      atualizarTotalEstornado(parcelas);
+    });
+  </script>
+</body>
+</html>
